@@ -8,11 +8,12 @@ pg.types.setTypeParser(1700, v => (v === null ? null : parseFloat(v)));
 const connectionString =
   process.env.DATABASE_URL || 'postgres://printshop:printshop@localhost:5432/printshop';
 
-// Managed Postgres (Render, etc.) needs SSL when reached over its public host.
-// The internal/localhost URLs do not, so only enable it when clearly required.
+// Managed Postgres (Neon, Render, etc.) needs SSL when reached over its public
+// host. The internal/localhost URLs do not, so only enable it when required.
 const needsSSL =
   process.env.DATABASE_SSL === 'true' ||
   /sslmode=require/i.test(connectionString) ||
+  /neon\.tech/i.test(connectionString) ||
   /render\.com/i.test(connectionString);
 
 export const pool = new pg.Pool({

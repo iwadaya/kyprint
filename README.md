@@ -47,14 +47,21 @@ Log in as Sipho to see the financial gating; log in as the owner, open **Access 
 
 ---
 
-## Deploy on Render
+## Deploy on Render (with a Neon database)
 
-The repo ships a [`render.yaml`](./render.yaml) Blueprint that provisions **one web service + a managed PostgreSQL database**. The web service builds the React client and the Express API together; the API serves the built SPA from `client/dist`, so the client's relative `/api` calls work on a single origin with no CORS or base-URL configuration. On boot the server applies every SQL migration and loads the demo seed automatically (idempotent — safe on every redeploy), so the first deploy comes up ready to log in.
+The repo ships a [`render.yaml`](./render.yaml) Blueprint that runs **one web service** on Render and uses an **external [Neon](https://neon.tech) PostgreSQL** database. The web service builds the React client and the Express API together; the API serves the built SPA from `client/dist`, so the client's relative `/api` calls work on a single origin with no CORS or base-URL configuration. On boot the server applies every SQL migration and loads the demo seed automatically (idempotent — safe on every redeploy), so the first deploy comes up ready to log in.
 
-**One-click-ish:**
+**1. Create the database on Neon**
 
-1. Push this repo to GitHub.
-2. In Render → **New + → Blueprint**, select the repo, and **Apply**. Render reads `render.yaml`, creates the `printshop-db` Postgres and the `printshop-pro` web service, generates `JWT_SECRET`, and wires `DATABASE_URL` to the database.
+1. At [neon.tech](https://neon.tech) → **New Project**.
+2. Open **Connection Details** and copy the **direct** connection string (the host *without* `-pooler`). It looks like:
+   `postgresql://user:pass@ep-xxx.<region>.aws.neon.tech/neondb?sslmode=require`
+3. No manual schema step needed — `pgcrypto` and `citext` are created by the first migration, which runs automatically on boot.
+
+**2. Deploy the web service on Render**
+
+1. In Render → **New + → Blueprint**, select this repo and set the branch to **`main`** (that's where `render.yaml` lives).
+2. **Apply.** Render generates `JWT_SECRET` and prompts for `DATABASE_URL` (it's `sync: false`) — paste your Neon connection string.
 3. Wait for the build/deploy to finish, open the service URL, and log in with `thandiwe@printshoppro.co.za` / `printshop2026`.
 
 **What runs where**
@@ -65,17 +72,17 @@ The repo ships a [`render.yaml`](./render.yaml) Blueprint that provisions **one 
 | Start | `npm start --prefix server` | applies migrations + seed on boot, then listens |
 | Health check | `GET /api/health` | |
 
-**Environment variables** (set automatically by the Blueprint):
+**Environment variables**
 
 | Var | Source | Purpose |
 |-----|--------|---------|
-| `DATABASE_URL` | from `printshop-db` | Postgres connection (SSL auto-enabled for Render hosts) |
+| `DATABASE_URL` | **you paste** the Neon string | Postgres connection (SSL auto-enabled for `neon.tech` / `sslmode=require`) |
 | `JWT_SECRET` | generated | token signing |
 | `NODE_ENV` | `production` | |
 | `NODE_VERSION` | `20` | |
 | `AUTO_MIGRATE` | _(unset → on)_ | set to `false` to manage the schema yourself (e.g. `npm run migrate` as a pre-deploy step) |
 
-> Free Postgres and free web services are fine for a demo (the web service sleeps when idle and cold-starts on the next request). For anything real, bump both to a paid plan in `render.yaml`.
+> Use Neon's **direct** connection string, not the `-pooler` (PgBouncer) one — the boot-time migration uses a session advisory lock that wants a real session. The Render free web service sleeps when idle (first request cold-starts); Neon's free compute also autosuspends and wakes on connect. Both are fine for a demo; bump to paid plans for production.
 
 ---
 

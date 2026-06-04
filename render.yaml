@@ -1,18 +1,12 @@
 # Render Blueprint — PrintShop Pro
 #
-# One web service (the Express API, which also serves the built React client)
-# plus a managed PostgreSQL database. The server applies the SQL migrations and
-# demo seed on boot, so a fresh deploy comes up ready to log in.
+# A single web service: the Express API that also serves the built React client.
+# The PostgreSQL database is external (Neon). The server applies the SQL
+# migrations and demo seed on boot, so a fresh deploy comes up ready to log in.
 #
-# Deploy: in the Render dashboard choose "New +" → "Blueprint", pick this repo,
-# and apply. JWT_SECRET is generated and DATABASE_URL is wired automatically.
-
-databases:
-  - name: printshop-db
-    databaseName: printshop
-    user: printshop
-    plan: free
-    region: oregon
+# Deploy: Render dashboard → "New +" → "Blueprint" → pick this repo (branch
+# main) → Apply. JWT_SECRET is generated; paste your Neon connection string as
+# DATABASE_URL when prompted (sync: false keeps it out of git).
 
 services:
   - type: web
@@ -33,9 +27,10 @@ services:
         value: "20"
       - key: NODE_ENV
         value: production
+      # External database (Neon). Prompted at deploy time, stored as a secret.
+      # Use Neon's DIRECT connection string (not the -pooler one) — it includes
+      # ?sslmode=require, which the server detects to enable SSL.
       - key: DATABASE_URL
-        fromDatabase:
-          name: printshop-db
-          property: connectionString
+        sync: false
       - key: JWT_SECRET
         generateValue: true
