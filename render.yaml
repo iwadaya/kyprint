@@ -1,0 +1,41 @@
+# Render Blueprint — PrintShop Pro
+#
+# One web service (the Express API, which also serves the built React client)
+# plus a managed PostgreSQL database. The server applies the SQL migrations and
+# demo seed on boot, so a fresh deploy comes up ready to log in.
+#
+# Deploy: in the Render dashboard choose "New +" → "Blueprint", pick this repo,
+# and apply. JWT_SECRET is generated and DATABASE_URL is wired automatically.
+
+databases:
+  - name: printshop-db
+    databaseName: printshop
+    user: printshop
+    plan: free
+    region: oregon
+
+services:
+  - type: web
+    name: printshop-pro
+    runtime: node
+    plan: free
+    region: oregon
+    # Install both packages, then build the SPA into client/dist (served by the
+    # API). --include=dev keeps Vite available even with NODE_ENV=production.
+    buildCommand: >-
+      npm install --prefix server &&
+      npm install --prefix client --include=dev &&
+      npm run build --prefix client
+    startCommand: npm start --prefix server
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: printshop-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
