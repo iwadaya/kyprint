@@ -62,16 +62,17 @@ FROM (VALUES
 JOIN customers c ON customer_display_name(c) = q.cust;
 
 -- ---------- ORDERS ----------
-INSERT INTO orders (order_number, customer_id, description, status, subtotal, vat_amount, total, deposit_amount, order_date, due_date, created_by)
+INSERT INTO orders (order_number, customer_id, description, status, subtotal, vat_amount, total, deposit_amount, order_date, due_date, created_by, assigned_to)
 SELECT o.onum, c.id, o.descr, o.st::order_status, o.sub, o.vat, o.tot, o.dep,
        current_date - (o.age||' days')::interval, current_date + 3,
-       (SELECT id FROM users WHERE role_label='Production' LIMIT 1)
+       (SELECT id FROM users WHERE role_label='Production' LIMIT 1),
+       (SELECT id FROM users WHERE role_label = o.assignee LIMIT 1)
 FROM (VALUES
-  ('ORD-2087','Naledi Stationers','500× A1 Posters','in_production',11130.43,1669.57,12800.00,6400.00,2),
-  ('ORD-2086','Durban Surf Club','3× Pull-up Banners','proofing',     3782.61, 567.39, 4350.00,2175.00,1),
-  ('ORD-2085','Soweto Eats','1000× Business Cards','ready',            1434.78, 215.22, 1650.00, 825.00,3),
-  ('ORD-2082','Khanya Events','200× Wedding Invites','proofing',       6434.78, 965.22, 7400.00,3700.00,4)
-) o(onum,cust,descr,st,sub,vat,tot,dep,age)
+  ('ORD-2087','Naledi Stationers','500× A1 Posters','in_production',11130.43,1669.57,12800.00,6400.00,2,'Production'),
+  ('ORD-2086','Durban Surf Club','3× Pull-up Banners','proofing',     3782.61, 567.39, 4350.00,2175.00,1,'Design'),
+  ('ORD-2085','Soweto Eats','1000× Business Cards','ready',            1434.78, 215.22, 1650.00, 825.00,3,'Production'),
+  ('ORD-2082','Khanya Events','200× Wedding Invites','proofing',       6434.78, 965.22, 7400.00,3700.00,4,'Design')
+) o(onum,cust,descr,st,sub,vat,tot,dep,age,assignee)
 JOIN customers c ON customer_display_name(c) = o.cust;
 
 -- ---------- INVOICES ----------

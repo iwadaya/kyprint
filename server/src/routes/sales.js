@@ -14,10 +14,12 @@ r.get('/orders', async (req, res) => {
             o.subtotal, o.vat_amount, o.total, o.deposit_amount,
             o.order_date, o.due_date,
             customer_display_name(c) AS customer_name, c.id AS customer_id,
-            u.first_name || ' ' || u.surname AS captured_by
+            u.first_name || ' ' || u.surname AS captured_by,
+            a.first_name AS assigned_to
        FROM orders o
        JOIN customers c ON c.id = o.customer_id
        LEFT JOIN users u ON u.id = o.created_by
+       LEFT JOIN users a ON a.id = o.assigned_to
       ORDER BY o.created_at DESC`);
   res.json(redactList(rows, MONEY_FIELDS, req.user));
 });
@@ -28,10 +30,11 @@ r.post('/orders', requirePermission('orders.create'), async (req, res) => {
   const vat = +(sub * 0.15).toFixed(2);
   const { rows } = await query(
     `INSERT INTO orders (order_number, customer_id, description, status, subtotal, vat_amount,
-                         total, deposit_amount, due_date, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
+                         total, deposit_amount, due_date, created_by, assigned_to)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
     [b.order_number, b.customer_id, b.description, b.status || 'in_production',
-     sub, vat, sub + vat, Number(b.deposit_amount || 0), b.due_date || null, req.user.id]);
+     sub, vat, sub + vat, Number(b.deposit_amount || 0), b.due_date || null, req.user.id,
+     b.assigned_to || null]);
   res.status(201).json({ id: rows[0].id });
 });
 
