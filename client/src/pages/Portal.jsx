@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { rand } from '../api.js';
 import { Badge } from '../components/ui.jsx';
+import { formatDate } from '../format.js';
 
 const STEPS = ['Order', 'Proofing', 'Production', 'Quality', 'Ready', 'Delivered'];
 
@@ -30,7 +31,7 @@ export default function Portal() {
 
   if (err) return <div className="loading">Portal not found.</div>;
   if (!d) return <div className="loading">Loading your portal…</div>;
-  const active = d.orders.filter(o => o.status !== 'delivered' && o.status !== 'cancelled').length;
+  const active = d.orders.filter(o => o.status !== 'delivered' && o.status !== 'cancelled' && o.status !== 'completed').length;
 
   return (
     <div className="portal-page">
@@ -60,7 +61,7 @@ export default function Portal() {
                 <div className="ot-top">
                   <span className="t-id mono">{o.order_number}</span>
                   <span className="ot-name">{o.description}</span>
-                  <span className="mono t-sub" style={{ marginLeft: 'auto' }}>due {o.due_date || '—'}</span>
+                  <span className="mono t-sub" style={{ marginLeft: 'auto' }}>due {formatDate(o.due_date)}</span>
                 </div>
                 <Track step={o.step} />
               </div>
@@ -94,7 +95,7 @@ export default function Portal() {
                   {d.invoices.map(v => (
                     <tr key={v.invoice_number}>
                       <td><span className="t-id">{v.invoice_number}</span></td>
-                      <td className="mono t-sub">{v.issue_date}</td>
+                      <td className="mono t-sub">{formatDate(v.issue_date)}</td>
                       <td><Badge value={v.status} /></td>
                       <td className="money mono">{rand(v.total)}</td>
                     </tr>

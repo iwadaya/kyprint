@@ -194,20 +194,27 @@ body.role-employee .user-chip .u-role{color:var(--green)}
 .btn-ghost{background:var(--card);border-color:var(--line);color:var(--text)}
 .btn-ghost:hover{border-color:var(--cyan-line);background:var(--card-2)}
 .btn-sm{padding:5px 10px;font-size:12px}
+.btn-wide{min-width:128px;justify-content:center}
 .btn-icon{padding:8px 10px}
 
 /* ---------- Cards & grids ---------- */
 .grid{display:grid;gap:16px}
 .cols-4{grid-template-columns:repeat(4,1fr)}
+.cols-5{grid-template-columns:repeat(5,1fr)}
 .cols-3{grid-template-columns:repeat(3,1fr)}
 .cols-2{grid-template-columns:repeat(2,1fr)}
-@media(max-width:1100px){.cols-4{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:1100px){
+  .cols-4,.cols-5{grid-template-columns:repeat(2,1fr)}
+}
 
 .metric{
   background:var(--card);border:1px solid var(--line-soft);border-radius:var(--radius-lg);
   padding:17px 18px 16px;position:relative;overflow:hidden;
 }
 .metric::before{content:"";position:absolute;top:0;left:0;right:0;height:2px;background:var(--strip,var(--cyan))}
+.metric.clickable{cursor:pointer;transition:border-color .15s,box-shadow .15s}
+.metric.clickable:hover{border-color:var(--cyan-line)}
+.metric.clickable.active{border-color:var(--cyan);box-shadow:0 0 0 1px var(--cyan-line)}
 .metric .m-label{font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-dim)}
 .metric .m-val{font-family:var(--mono);font-weight:600;font-size:27px;margin-top:9px;letter-spacing:-.01em}
 .metric .m-foot{display:flex;align-items:center;gap:6px;margin-top:9px;font-size:12px;color:var(--text-dim)}
@@ -220,6 +227,11 @@ body.role-employee .user-chip .u-role{color:var(--green)}
 .panel-head h3{font-family:var(--display);font-weight:700;font-size:15px;letter-spacing:-.01em}
 .panel-head .sub{font-family:var(--mono);font-size:11px;color:var(--text-faint)}
 .panel-head .spacer{flex:1}
+.panel-actions{display:flex;align-items:center;gap:8px}
+.panel-actions .filter-select,
+.panel-actions .btn.btn-sm{height:32px;box-sizing:border-box;padding-top:0;padding-bottom:0;font-size:12px;line-height:1}
+.panel-actions .filter-select{padding-left:10px;padding-right:28px}
+.panel-actions .btn.btn-sm{padding-left:14px;padding-right:14px}
 .panel-body{padding:18px}
 
 /* ---------- Tables ---------- */
@@ -265,6 +277,7 @@ td .money,.money{font-family:var(--mono);font-weight:500;font-feature-settings:"
   padding:9px 12px;font-size:13px;outline:none;transition:border .15s;
 }
 .input:focus{border-color:var(--cyan)}
+.filter-select{width:auto;min-width:140px;padding:5px 28px 5px 10px;font-size:12px}
 .row-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 
 .captured-row{

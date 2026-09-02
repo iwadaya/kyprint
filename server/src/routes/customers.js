@@ -25,7 +25,7 @@ function validate(body) {
 r.get('/', async (req, res) => {
   const { rows } = await query(
     `SELECT id, type, display_name, first_name, surname, company_name, email, phone,
-            city, vat_number, order_count, lifetime_spend, portal_token
+            city, vat_number, order_count, lifetime_spend, portal_token, created_at
        FROM customer_summary ORDER BY display_name`
   );
   res.json(redactList(rows, ['lifetime_spend'], req.user));

@@ -55,7 +55,7 @@ r.post('/payments', requirePermission('payments.record'), async (req, res) => {
 // ---------- REMINDERS (overdue feed) ----------
 r.get('/reminders', async (req, res) => {
   const { rows } = await query(
-    `SELECT invoice_number, customer_name, phone, balance, days_overdue, next_stage
+    `SELECT invoice_number, customer_name, phone, balance, days_overdue, next_stage, due_date
        FROM overdue_invoices ORDER BY days_overdue DESC`);
   res.json(redactList(rows, ['balance'], req.user));
 });

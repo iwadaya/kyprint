@@ -15,7 +15,8 @@ r.get('/:token', async (req, res) => {
   const orders = (await query(
     `SELECT order_number, description, status, due_date,
             CASE status WHEN 'in_production' THEN 2 WHEN 'proofing' THEN 1
-                        WHEN 'ready' THEN 4 WHEN 'delivered' THEN 5 ELSE 0 END AS step
+                        WHEN 'ready' THEN 4 WHEN 'completed' THEN 5
+                        WHEN 'delivered' THEN 5 ELSE 0 END AS step
        FROM orders WHERE customer_id = $1 ORDER BY created_at DESC`, [c.id])).rows;
 
   const proofs = (await query(

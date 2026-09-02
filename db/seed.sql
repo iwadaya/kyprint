@@ -116,7 +116,28 @@ INSERT INTO stock_items (name, category, sku, on_hand, reorder_at, unit_cost) VA
   ('Matte Vinyl Roll','VINYL','SUP-VNL01',3,5,540.00),
   ('Cyan Ink 1L','INK','SUP-INKC',12,4,310.00),
   ('Banner Eyelets','HARDWARE','SUP-EYL',0,200,0.85),
-  ('Lamination Film','FILM','SUP-LAM',7,6,180.00);
+  ('Lamination Film','FILM','SUP-LAM',7,6,180.00),
+  ('A3 Wooden Frame','HARDWARE','SUP-FRMA3',48,10,45.00),
+  ('Canvas Sheet','FILM','SUP-CNV01',250,40,18.50);
+
+-- ---------- PRODUCTS ----------
+INSERT INTO products (name, price, created_by)
+SELECT p.name, p.price, (SELECT id FROM users WHERE is_owner LIMIT 1)
+FROM (VALUES
+  ('A3 Canvas Print', 450.00),
+  ('A1 Poster Print', 180.00)
+) p(name, price);
+
+INSERT INTO product_materials (product_id, stock_item_id, quantity)
+SELECT pr.id, s.id, m.qty
+FROM (VALUES
+  ('A3 Canvas Print','A3 Wooden Frame',1),
+  ('A3 Canvas Print','Canvas Sheet',100),
+  ('A1 Poster Print','Gloss 170gsm A1',1),
+  ('A1 Poster Print','Cyan Ink 1L',0.05)
+) m(product, stock, qty)
+JOIN products pr ON pr.name = m.product
+JOIN stock_items s ON s.name = m.stock;
 
 -- ---------- DELIVERIES ----------
 INSERT INTO deliveries (reference, order_id, carrier, tracking_ref, status, scheduled_for, created_by)

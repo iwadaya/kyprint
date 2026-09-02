@@ -9,7 +9,8 @@ export const Money = ({ value, className = '' }) => (
 const BADGE_MAP = {
   // orders
   in_production: ['In Production', 'b-cyan'], proofing: ['Proofing', 'b-amber'],
-  ready: ['Ready', 'b-green'], delivered: ['Delivered', 'b-grey'], cancelled: ['Cancelled', 'b-red'],
+  ready: ['Ready', 'b-green'], completed: ['Completed', 'b-purple'],
+  delivered: ['Delivered', 'b-grey'], cancelled: ['Cancelled', 'b-red'],
   // quotes
   draft: ['Draft', 'b-grey'], sent: ['Sent', 'b-cyan'], accepted: ['Accepted', 'b-green'],
   expired: ['Expired', 'b-red'], declined: ['Declined', 'b-red'],
@@ -31,8 +32,17 @@ export const Badge = ({ value, label }) => {
   return <span className={`badge ${cls}`}>{text}</span>;
 };
 
-export const Metric = ({ label, value, strip = 'var(--cyan)', foot }) => (
-  <div className="metric" style={{ '--strip': strip }}>
+export const Metric = ({ label, value, strip = 'var(--cyan)', foot, onClick, active }) => (
+  <div
+    className={`metric${onClick ? ' clickable' : ''}${active ? ' active' : ''}`}
+    style={{ '--strip': strip }}
+    onClick={onClick}
+    role={onClick ? 'button' : undefined}
+    tabIndex={onClick ? 0 : undefined}
+    onKeyDown={onClick ? (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); }
+    } : undefined}
+  >
     <div className="m-label">{label}</div>
     <div className="m-val">{value}</div>
     {foot && <div className="m-foot">{foot}</div>}

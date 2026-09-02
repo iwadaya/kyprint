@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useFetch } from '../useFetch.js';
 import { api } from '../api.js';
 import { Metric } from '../components/ui.jsx';
+import { monthFoot } from '../format.js';
 
 export default function AccessControl() {
   const { data: users, reload } = useFetch('/users');
@@ -32,9 +33,9 @@ export default function AccessControl() {
   return (
     <>
       <div className="grid cols-3" style={{ marginBottom: 16 }}>
-        <Metric label="Team Members" strip="var(--cyan)" value={users.length} />
-        <Metric label="Permissions" strip="var(--purple)" value={perms.length} />
-        <Metric label="Owners / Admins" strip="var(--green)" value={users.filter(u => u.is_owner).length} />
+        <Metric label="Team Members" strip="var(--cyan)" value={users.length} foot={monthFoot()} />
+        <Metric label="Permissions" strip="var(--purple)" value={perms.length} foot={monthFoot()} />
+        <Metric label="Owners / Admins" strip="var(--green)" value={users.filter(u => u.is_owner).length} foot={monthFoot()} />
       </div>
 
       <div className="flex aic gap8" style={{ marginBottom: 14 }}>

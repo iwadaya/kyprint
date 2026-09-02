@@ -9,6 +9,7 @@ const NAV = [
   { to: '/quotes', icon: 'quote', label: 'Quotes' },
   { to: '/proofing', icon: 'proof', label: 'Proofing' },
   { to: '/stock', icon: 'stock', label: 'Stock' },
+  { to: '/products', icon: 'products', label: 'Products' },
   { to: '/deliveries', icon: 'deliv', label: 'Deliveries' },
   { sec: 'FINANCE' },
   { to: '/invoices', icon: 'invoice', label: 'Invoices' },
@@ -24,7 +25,8 @@ const NAV = [
 const TITLES = {
   '/': ['Dashboard', '/ overview'], '/orders': ['Orders', '/ production queue'],
   '/quotes': ['Quotes', '/ pending estimates'], '/proofing': ['Proofing', '/ awaiting approval'],
-  '/stock': ['Stock', '/ materials & consumables'], '/deliveries': ['Deliveries', '/ dispatch'],
+  '/stock': ['Stock', '/ materials & consumables'], '/products': ['Products', '/ bill of materials'],
+  '/deliveries': ['Deliveries', '/ dispatch'],
   '/invoices': ['Invoices', '/ billing'], '/payments': ['Payments', '/ receipts & deposits'],
   '/reminders': ['Payment Reminders', '/ overdue follow-ups'], '/customers': ['Customers', '/ directory'],
   '/whatsapp': ['WhatsApp Notifications', '/ message centre'], '/access': ['Access Control', '/ users & permissions']

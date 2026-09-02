@@ -11,6 +11,7 @@ import Reminders from './pages/Reminders.jsx';
 import Customers from './pages/Customers.jsx';
 import AccessControl from './pages/AccessControl.jsx';
 import Portal from './pages/Portal.jsx';
+import Products from './pages/Products.jsx';
 import { Proofing, Stock, Deliveries, WhatsApp } from './pages/Catalog.jsx';
 
 function Protected({ children }) {
@@ -43,6 +44,7 @@ export default function App() {
       <Route path="/quotes" element={<Protected><Quotes /></Protected>} />
       <Route path="/proofing" element={<Protected><Proofing /></Protected>} />
       <Route path="/stock" element={<Protected><Stock /></Protected>} />
+      <Route path="/products" element={<Protected><Products /></Protected>} />
       <Route path="/deliveries" element={<Protected><Deliveries /></Protected>} />
       <Route path="/invoices" element={<Protected><Invoices /></Protected>} />
       <Route path="/payments" element={<Protected><Payments /></Protected>} />

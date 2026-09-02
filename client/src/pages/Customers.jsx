@@ -4,6 +4,7 @@ import { useFetch } from '../useFetch.js';
 import { api } from '../api.js';
 import { Metric, Panel, Money, Modal, CapturedBy } from '../components/ui.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
+import { isThisMonth, monthFoot } from '../format.js';
 
 const blank = {
   type: 'company', first_name: '', surname: '', company_name: '',
@@ -13,6 +14,7 @@ const blank = {
 export default function Customers() {
   const { can } = useAuth();
   const { data: customers, reload } = useFetch('/customers');
+  const { data: payments } = useFetch('/payments');
   const [form, setForm] = useState(null);   // null = closed
   const [errors, setErrors] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -33,14 +35,19 @@ export default function Customers() {
 
   if (!customers) return <div className="loading">Loading customers…</div>;
 
+  const month = customers.filter(c => isThisMonth(c.created_at));
+  const monthPayments = (payments || []).filter(p => isThisMonth(p.paid_at) && p.type === 'payment');
+  const spendMonth = monthPayments.some(p => p.amount === null)
+    ? null
+    : monthPayments.reduce((s, p) => s + p.amount, 0);
+
   return (
     <>
       <div className="grid cols-4" style={{ marginBottom: 16 }}>
-        <Metric label="Total Customers" strip="var(--cyan)" value={customers.length} />
-        <Metric label="Companies" strip="var(--green)" value={customers.filter(c => c.type === 'company').length} />
-        <Metric label="Individuals" strip="var(--amber)" value={customers.filter(c => c.type === 'individual').length} />
-        <Metric label="Lifetime Value" strip="var(--purple)"
-          value={<Money value={customers.reduce((s, c) => s + (c.lifetime_spend || 0), 0) || (customers[0]?.lifetime_spend === null ? null : 0)} />} />
+        <Metric label="New Customers" strip="var(--cyan)" value={month.length} foot={monthFoot()} />
+        <Metric label="Companies" strip="var(--green)" value={month.filter(c => c.type === 'company').length} foot={monthFoot()} />
+        <Metric label="Individuals" strip="var(--amber)" value={month.filter(c => c.type === 'individual').length} foot={monthFoot()} />
+        <Metric label="Spend · Month" strip="var(--purple)" value={<Money value={spendMonth} />} foot={monthFoot()} />
       </div>
 
       <Panel title="Customer Directory" sub={`${customers.length} total`}

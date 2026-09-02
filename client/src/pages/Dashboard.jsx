@@ -1,6 +1,7 @@
 import { useFetch } from '../useFetch.js';
 import { Metric, Panel, Money, Badge } from '../components/ui.jsx';
 import { useTheme } from '../context/ThemeContext.jsx';
+import { formatDate, isThisMonth, monthFoot, monthLabel } from '../format.js';
 
 function SunIcon() {
   return (
@@ -27,6 +28,8 @@ export default function Dashboard() {
   if (!d) return <div className="loading">Loading dashboard…</div>;
 
   const fin = d.can_see_financials;
+  const monthOrders = (orders || []).filter(o => isThisMonth(o.order_date));
+  const monthProofs = (proofs || []).filter(p => isThisMonth(p.sent_at));
 
   return (
     <>
@@ -49,34 +52,34 @@ export default function Dashboard() {
           <>
             <Metric label="Revenue · This Month" strip="var(--cyan)"
               value={<Money value={d.revenue_month} />}
-              foot={<><span className="trend up mono">▲ 12.4%</span><span>vs last month</span></>} />
+              foot={monthFoot()} />
             <Metric label="Outstanding Invoices" strip="var(--amber)" value={<Money value={d.outstanding} />}
-              foot={<span className="mono" style={{ fontSize: 11, color: 'var(--text-dim)' }}>{d.overdue_count} overdue</span>} />
-            <Metric label="Deposits Held" strip="var(--purple)" value={<Money value={d.deposits_held} />} />
-            <Metric label="Active Orders" strip="var(--green)" value={d.active_orders}
-              foot={<span className="trend up mono">in queue</span>} />
+              foot={<span className="mono" style={{ fontSize: 11, color: 'var(--text-dim)' }}>{d.overdue_count} overdue · {monthLabel()}</span>} />
+            <Metric label="Deposits Held" strip="var(--purple)" value={<Money value={d.deposits_held} />} foot={monthFoot()} />
+            <Metric label="Active Orders" strip="var(--green)" value={d.active_orders} foot={monthFoot()} />
           </>
         ) : (
           <>
-            <Metric label="Active Orders" strip="var(--cyan)" value={d.active_orders} />
-            <Metric label="In Production" strip="var(--amber)" value={d.in_production} />
-            <Metric label="Proofs to Send" strip="var(--purple)" value={d.awaiting_proof} />
-            <Metric label="Out for Delivery" strip="var(--green)" value={d.out_for_delivery} />
+            <Metric label="Active Orders" strip="var(--cyan)" value={d.active_orders} foot={monthFoot()} />
+            <Metric label="In Production" strip="var(--amber)" value={d.in_production} foot={monthFoot()} />
+            <Metric label="Proofs to Send" strip="var(--purple)" value={d.awaiting_proof} foot={monthFoot()} />
+            <Metric label="Out for Delivery" strip="var(--green)" value={d.out_for_delivery} foot={monthFoot()} />
           </>
         )}
       </div>
 
       <div className="grid cols-2 mt16" style={{ gridTemplateColumns: '1.55fr 1fr' }}>
-        <Panel title={fin ? 'Production Queue' : 'My Production Queue'} sub={`${orders?.length || 0} live`}>
+        <Panel title={fin ? 'Production Queue' : 'My Production Queue'} sub={`${monthOrders.length} this month`}>
           <table className="table">
-            <thead><tr><th>Order</th><th>Customer / Item</th><th>Status</th><th>Assigned To</th><th>Total</th></tr></thead>
+            <thead><tr><th>Order</th><th>Customer / Item</th><th>Status</th><th>Assigned To</th><th>Due</th><th>Total</th></tr></thead>
             <tbody>
-              {(orders || []).slice(0, 6).map(o => (
+              {monthOrders.slice(0, 6).map(o => (
                 <tr key={o.id}>
                   <td><span className="t-id">{o.order_number}</span></td>
                   <td><div style={{ fontWeight: 600 }}>{o.customer_name}</div><div className="t-sub">{o.description}</div></td>
                   <td><Badge value={o.status} /></td>
                   <td className="t-sub">{o.assigned_to || '—'}</td>
+                  <td className="mono t-sub">{formatDate(o.due_date)}</td>
                   <td><Money value={o.total} /></td>
                 </tr>
               ))}
@@ -84,9 +87,9 @@ export default function Dashboard() {
           </table>
         </Panel>
 
-        <Panel title="Design Approvals" sub={`${(proofs || []).filter(p => p.status === 'awaiting').length}`}>
+        <Panel title="Design Approvals" sub={`${monthProofs.filter(p => p.status === 'awaiting').length} this month`}>
           <div className="panel-body" style={{ padding: '6px 18px 14px' }}>
-            {(proofs || []).slice(0, 4).map(p => (
+            {monthProofs.filter(p => p.status === 'awaiting').slice(0, 4).map(p => (
               <div className="proof-row" key={p.id}>
                 <div className="proof-thumb">▣</div>
                 <div style={{ minWidth: 0 }}>
