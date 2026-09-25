@@ -11,6 +11,8 @@ import Reminders from './pages/Reminders.jsx';
 import Customers from './pages/Customers.jsx';
 import AccessControl from './pages/AccessControl.jsx';
 import Portal from './pages/Portal.jsx';
+import QuoteRespond from './pages/QuoteRespond.jsx';
+import InvoiceView from './pages/InvoiceView.jsx';
 import Products from './pages/Products.jsx';
 import { Proofing, Stock, Deliveries, WhatsApp } from './pages/Catalog.jsx';
 
@@ -36,6 +38,8 @@ export default function App() {
     <Routes>
       {/* Standalone, full-page, token-authenticated customer portal */}
       <Route path="/portal/:token" element={<Portal />} />
+      <Route path="/quote/:token" element={<QuoteRespond />} />
+      <Route path="/invoice/:token" element={<InvoiceView />} />
 
       <Route path="/login" element={user && !loading ? <Navigate to="/" replace /> : <Login />} />
 

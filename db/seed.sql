@@ -51,7 +51,8 @@ CROSS JOIN LATERAL (SELECT id FROM users WHERE is_owner LIMIT 1) o(created_by);
 
 -- ---------- QUOTES ----------
 INSERT INTO quotes (quote_number, customer_id, description, status, subtotal, vat_amount, total, valid_until, created_by)
-SELECT q.qn, c.id, q.descr, q.st::quote_status, q.sub, q.vat, q.tot, current_date + 14,
+SELECT q.qn, c.id, q.descr, q.st::quote_status, q.sub, q.vat, q.tot,
+       CASE WHEN q.st = 'expired' THEN current_date - 5 ELSE current_date + 30 END,
        (SELECT id FROM users WHERE is_owner LIMIT 1)
 FROM (VALUES
   ('QUO-0451','Naledi Stationers','Roll-up + flyers bundle','sent',     7521.74,1128.26, 8650.00),

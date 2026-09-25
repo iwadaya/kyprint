@@ -14,6 +14,7 @@ import catalogRoutes from './routes/catalog.js';
 import userRoutes from './routes/users.js';
 import dashboardRoutes from './routes/dashboard.js';
 import portalRoutes from './routes/portal.js';
+import publicRoutes from './routes/public.js';
 
 dotenv.config();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -26,6 +27,7 @@ app.get('/api/health', (_req, res) => res.json({ ok: true }));
 // Public auth + public customer portal (token-authenticated via the URL).
 app.use('/api/auth', authRoutes);
 app.use('/api/portal', portalRoutes);
+app.use('/api/public', publicRoutes);
 
 // Everything below requires a valid token.
 app.use('/api', authenticate);

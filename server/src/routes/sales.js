@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { query, pool } from '../db.js';
 import { requirePermission } from '../auth.js';
-import { redactList, canSeeFinancials } from '../permissions.js';
+import { redactList, can } from '../permissions.js';
+import { buildQuotePdf } from '../quotePdf.js';
 
 const r = Router();
 
@@ -269,25 +270,284 @@ r.patch('/orders/:id/status', requirePermission('orders.edit'), async (req, res)
 });
 
 // ---------- QUOTES ----------
-r.get('/quotes', async (req, res) => {
+async function nextQuoteNumber(client = null) {
+  const run = client ? client.query.bind(client) : query;
+  const { rows } = await run(`
+    SELECT 'QUO-' || (COALESCE(MAX(CAST(SUBSTRING(quote_number FROM 5) AS INTEGER)), 0) + 1)::text AS quote_number
+      FROM quotes
+     WHERE quote_number ~ '^QUO-[0-9]+$'
+  `);
+  return rows[0].quote_number;
+}
+
+async function expireStaleQuotes(client = null) {
+  const run = client ? client.query.bind(client) : query;
+  await run(`
+    UPDATE quotes
+       SET status = 'expired'
+     WHERE valid_until < CURRENT_DATE
+       AND status IN ('draft', 'sent')
+  `);
+}
+
+function formatZar(n) {
+  return `R ${Number(n || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function publicAppBase(req) {
+  const env = process.env.PUBLIC_APP_URL || process.env.CLIENT_ORIGIN;
+  if (env && env !== 'true') return env.replace(/\/$/, '');
+  const host = req.get('x-forwarded-host') || req.get('host');
+  const proto = req.get('x-forwarded-proto') || req.protocol || 'http';
+  return `${proto}://${host}`;
+}
+
+function pdfPublicUrl(req, shareToken) {
+  return `${publicAppBase(req)}/api/public/quotes/${shareToken}/pdf`;
+}
+
+function quoteRespondUrl(req, shareToken) {
+  return `${publicAppBase(req)}/quote/${shareToken}`;
+}
+
+async function ensureShareToken(quoteId) {
+  const { rows } = await query(
+    `UPDATE quotes
+        SET share_token = COALESCE(share_token, gen_random_uuid())
+      WHERE id = $1
+      RETURNING share_token`,
+    [quoteId]
+  );
+  return rows[0]?.share_token;
+}
+
+async function loadQuoteForPdf(id) {
   const { rows } = await query(
     `SELECT q.id, q.quote_number, q.description, q.status, q.subtotal, q.vat_amount, q.total,
-            q.valid_until, q.created_at, customer_display_name(c) AS customer_name, c.id AS customer_id
+            q.valid_until::text AS valid_until, q.share_token,
+            customer_display_name(c) AS customer_name,
+            c.email AS customer_email, c.phone AS customer_phone
        FROM quotes q JOIN customers c ON c.id = q.customer_id
+      WHERE q.id = $1`,
+    [id]
+  );
+  return rows[0] || null;
+}
+
+function buildQuoteMessage(quote, items, pdfUrl, respondUrl) {
+  const lines = [
+    `Hi ${quote.customer_name},`,
+    '',
+    `Please find quote ${quote.quote_number} from PrintShop Pro.`,
+    '',
+    `PDF download: ${pdfUrl}`,
+    '',
+    `Accept or decline this quote here:`,
+    respondUrl,
+    '',
+    quote.description,
+    '',
+  ];
+  for (const it of items) {
+    lines.push(`• ${it.description} × ${Number(it.quantity)} @ ${formatZar(it.unit_price)} = ${formatZar(it.line_total)}`);
+  }
+  lines.push(
+    '',
+    `Subtotal: ${formatZar(quote.subtotal)}`,
+    `VAT (15%): ${formatZar(quote.vat_amount)}`,
+    `Total: ${formatZar(quote.total)}`,
+    '',
+    `This quote is valid until ${quote.valid_until}.`,
+    '',
+    'Thanks,',
+    'PrintShop Pro'
+  );
+  return lines.join('\n');
+}
+
+function phoneForWhatsApp(phone) {
+  const digits = String(phone || '').replace(/\D/g, '');
+  return digits || null;
+}
+
+r.get('/quotes', async (req, res) => {
+  await expireStaleQuotes();
+  const { rows } = await query(
+    `SELECT q.id, q.quote_number, q.description, q.status, q.subtotal, q.vat_amount, q.total,
+            q.valid_until, q.created_at,
+            customer_display_name(c) AS customer_name, c.id AS customer_id,
+            c.email AS customer_email, c.phone AS customer_phone,
+            u.first_name || ' ' || u.surname AS captured_by,
+            COALESCE((
+              SELECT json_agg(json_build_object(
+                'id', qi.id,
+                'description', qi.description,
+                'quantity', qi.quantity,
+                'unit_price', qi.unit_price,
+                'line_total', qi.line_total
+              ) ORDER BY qi.description)
+              FROM quote_items qi WHERE qi.quote_id = q.id
+            ), '[]'::json) AS items
+       FROM quotes q
+       JOIN customers c ON c.id = q.customer_id
+       LEFT JOIN users u ON u.id = q.created_by
       ORDER BY q.created_at DESC`);
   res.json(redactList(rows, ['subtotal', 'vat_amount', 'total'], req.user));
 });
 
 r.post('/quotes', requirePermission('quotes.create'), async (req, res) => {
   const b = req.body;
-  const sub = Number(b.subtotal || 0);
-  const vat = +(sub * 0.15).toFixed(2);
+  const errors = [];
+  if (!b.customer_id) errors.push('Customer is required');
+  const description = (b.description || '').trim();
+  if (!description) errors.push('Description is required');
+
+  const items = normalizeItems(b.items);
+  if (!items.length) errors.push('At least one product is required');
+  const seen = new Set();
+  for (const i of items) {
+    if (!i.quantity || i.quantity <= 0) errors.push('Each product quantity must be greater than zero');
+    if (seen.has(i.product_id)) errors.push('Each product can only appear once');
+    seen.add(i.product_id);
+  }
+  if (errors.length) return res.status(422).json({ errors: [...new Set(errors)] });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const products = await loadProducts(client, items.map((i) => i.product_id));
+    if (products.size !== items.length) {
+      throw Object.assign(new Error('One or more products were not found'), { status: 400 });
+    }
+
+    let productsTotal = 0;
+    const lines = items.map((i) => {
+      const p = products.get(i.product_id);
+      const unit = Number(p.price) || 0;
+      productsTotal += unit * i.quantity;
+      return {
+        description: p.name,
+        quantity: i.quantity,
+        unit_price: unit,
+      };
+    });
+    productsTotal = +productsTotal.toFixed(2);
+    const vat = +(productsTotal * 0.15).toFixed(2);
+    const total = +(productsTotal + vat).toFixed(2);
+    const quoteNumber = await nextQuoteNumber(client);
+
+    const { rows } = await client.query(
+      `INSERT INTO quotes (quote_number, customer_id, description, status, subtotal, vat_amount, total, valid_until, created_by)
+       VALUES ($1,$2,$3,'draft',$4,$5,$6, CURRENT_DATE + 30, $7)
+       RETURNING id, valid_until`,
+      [quoteNumber, b.customer_id, description, productsTotal, vat, total, req.user.id]
+    );
+    const quoteId = rows[0].id;
+
+    for (const line of lines) {
+      await client.query(
+        `INSERT INTO quote_items (quote_id, description, quantity, unit_price)
+         VALUES ($1,$2,$3,$4)`,
+        [quoteId, line.description, line.quantity, line.unit_price]
+      );
+    }
+
+    await client.query('COMMIT');
+    res.status(201).json({ id: quoteId, quote_number: quoteNumber, valid_until: rows[0].valid_until });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    if (err.status) return res.status(err.status).json({ errors: [err.message] });
+    throw err;
+  } finally {
+    client.release();
+  }
+});
+
+r.post('/quotes/:id/send', requirePermission('quotes.create'), async (req, res) => {
+  const channel = req.body.channel === 'whatsapp' ? 'whatsapp' : req.body.channel === 'email' ? 'email' : null;
+  if (!channel) return res.status(422).json({ errors: ['channel must be email or whatsapp'] });
+  if (channel === 'whatsapp' && !can(req.user, 'whatsapp.send')) {
+    return res.status(403).json({ error: 'Missing permission: whatsapp.send' });
+  }
+
+  await expireStaleQuotes();
+
   const { rows } = await query(
-    `INSERT INTO quotes (quote_number, customer_id, description, status, subtotal, vat_amount, total, valid_until, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
-    [b.quote_number, b.customer_id, b.description, b.status || 'draft', sub, vat, sub + vat,
-     b.valid_until || null, req.user.id]);
-  res.status(201).json({ id: rows[0].id });
+    `SELECT q.id, q.quote_number, q.description, q.status, q.subtotal, q.vat_amount, q.total,
+            q.valid_until::text AS valid_until, q.share_token,
+            customer_display_name(c) AS customer_name, c.id AS customer_id,
+            c.email AS customer_email, c.phone AS customer_phone
+       FROM quotes q JOIN customers c ON c.id = q.customer_id
+      WHERE q.id = $1`,
+    [req.params.id]
+  );
+  const quote = rows[0];
+  if (!quote) return res.status(404).json({ error: 'Not found' });
+  if (quote.status === 'expired') {
+    return res.status(400).json({ errors: ['This quote has expired and cannot be sent'] });
+  }
+  if (quote.status === 'declined') {
+    return res.status(400).json({ errors: ['This quote was declined and cannot be sent'] });
+  }
+  if (channel === 'email' && !quote.customer_email) {
+    return res.status(400).json({ errors: ['Customer has no email address'] });
+  }
+  if (channel === 'whatsapp') {
+    const phone = phoneForWhatsApp(quote.customer_phone);
+    if (!phone) return res.status(400).json({ errors: ['Customer has no phone number'] });
+  }
+
+  const shareToken = quote.share_token || (await ensureShareToken(quote.id));
+  const pdfUrl = pdfPublicUrl(req, shareToken);
+  const respondUrl = quoteRespondUrl(req, shareToken);
+
+  const { rows: items } = await query(
+    `SELECT description, quantity, unit_price, line_total FROM quote_items WHERE quote_id = $1 ORDER BY description`,
+    [quote.id]
+  );
+  const body = buildQuoteMessage(quote, items, pdfUrl, respondUrl);
+  const subject = `Quote ${quote.quote_number} — PrintShop Pro`;
+
+  let url;
+  if (channel === 'email') {
+    url = `mailto:${quote.customer_email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  } else {
+    const phone = phoneForWhatsApp(quote.customer_phone);
+    url = `https://wa.me/${phone}?text=${encodeURIComponent(body)}`;
+    await query(
+      `INSERT INTO whatsapp_messages (customer_id, template, body, status, created_by)
+       VALUES ($1,'quote_sent',$2,'sent',$3)`,
+      [quote.customer_id, body, req.user.id]
+    );
+  }
+
+  if (quote.status === 'draft' || quote.status === 'sent') {
+    await query(`UPDATE quotes SET status = 'sent' WHERE id = $1`, [quote.id]);
+  }
+
+  res.json({ ok: true, channel, url, subject, body, pdf_url: pdfUrl, respond_url: respondUrl });
+});
+
+r.get('/quotes/:id/pdf', async (req, res) => {
+  const quote = await loadQuoteForPdf(req.params.id);
+  if (!quote) return res.status(404).json({ error: 'Not found' });
+
+  const { rows: items } = await query(
+    `SELECT description, quantity, unit_price, line_total
+       FROM quote_items WHERE quote_id = $1 ORDER BY description`,
+    [quote.id]
+  );
+
+  try {
+    const pdf = await buildQuotePdf({ quote, items });
+    const filename = `${quote.quote_number}.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(pdf);
+  } catch (err) {
+    console.error('Quote PDF failed:', err);
+    res.status(500).json({ error: 'Could not generate PDF' });
+  }
 });
 
 export default r;
