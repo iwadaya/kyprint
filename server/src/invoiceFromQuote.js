@@ -1,4 +1,7 @@
+import nodemailer from 'nodemailer';
 import { query, pool } from './db.js';
+import { buildInvoicePdf } from './invoicePdf.js';
+import { paymentPageLinks } from './payments.js';
 
 function zar(n) {
   return `R ${Number(n || 0).toLocaleString('en-ZA', {
@@ -32,25 +35,37 @@ async function nextInvoiceNumber(client) {
   return rows[0].invoice_number;
 }
 
-function buildInvoiceMessage(invoice, urls) {
-  return [
+function buildInvoiceMessage(invoice, urls, payLinks) {
+  const lines = [
     `Hi ${invoice.customer_name},`,
     '',
-    `Thanks for accepting quote ${invoice.quote_number}. Your invoice ${invoice.invoice_number} is ready for payment.`,
+    `Thanks for accepting quote ${invoice.quote_number}. Your invoice ${invoice.invoice_number} is attached and ready for payment.`,
     '',
     `View invoice: ${urls.view_url}`,
     `PDF download: ${urls.pdf_url}`,
+  ];
+  if (payLinks.yoco) lines.push(`Pay with Yoco: ${payLinks.yoco}`);
+  if (payLinks.payfast) lines.push(`Pay with Payfast: ${payLinks.payfast}`);
+  if (!payLinks.yoco && !payLinks.payfast) {
+    lines.push('', 'Pay by EFT and use your invoice number as the payment reference.');
+  }
+  lines.push(
     '',
     invoice.description || '',
     '',
     `Amount due: ${zar(invoice.balance ?? invoice.total)}`,
     `Due date: ${invoice.due_date}`,
     '',
-    'Please use your invoice number as the EFT payment reference.',
-    '',
     'Thanks,',
-    'PrintShop Pro',
-  ].filter((line, i, arr) => !(line === '' && arr[i - 1] === '')).join('\n');
+    'PrintShop Pro'
+  );
+  return lines.filter((line, i, arr) => !(line === '' && arr[i - 1] === '')).join('\n');
+}
+
+function whatsAppNumber(phone) {
+  let digits = String(phone || '').replace(/\D/g, '');
+  if (digits.startsWith('0')) digits = `27${digits.slice(1)}`;
+  return digits;
 }
 
 /**
@@ -164,67 +179,148 @@ export async function createInvoiceFromQuote(quote) {
   }
 }
 
-/** Log WhatsApp + email reminder records; optionally send SMTP email when configured. */
+async function sendInvoiceEmail(invoice, subject, body, pdf) {
+  if (!process.env.SMTP_HOST || !process.env.SMTP_FROM) {
+    return { ok: false, error: 'SMTP is not configured' };
+  }
+  const transporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: Number(process.env.SMTP_PORT || 587),
+    secure: process.env.SMTP_SECURE === 'true',
+    auth: process.env.SMTP_USER
+      ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
+      : undefined,
+  });
+  await transporter.sendMail({
+    from: process.env.SMTP_FROM,
+    to: invoice.customer_email,
+    subject,
+    text: body,
+    attachments: pdf
+      ? [{ filename: `${invoice.invoice_number}.pdf`, content: pdf, contentType: 'application/pdf' }]
+      : [],
+  });
+  return { ok: true };
+}
+
+async function sendInvoiceWhatsApp(to, body, invoice, payLinks) {
+  const token = process.env.WHATSAPP_TOKEN;
+  const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+  if (!token || !phoneId) return { ok: false, error: 'WhatsApp is not configured' };
+  const template = process.env.WHATSAPP_TEMPLATE_NAME;
+  const payUrl = payLinks.yoco || payLinks.payfast || invoice.view_url;
+  const payload = template
+    ? {
+        messaging_product: 'whatsapp',
+        to,
+        type: 'template',
+        template: {
+          name: template,
+          language: { code: process.env.WHATSAPP_TEMPLATE_LANG || 'en' },
+          components: [{
+            type: 'body',
+            parameters: [
+              { type: 'text', text: invoice.customer_name },
+              { type: 'text', text: invoice.invoice_number },
+              { type: 'text', text: zar(invoice.balance ?? invoice.total) },
+              { type: 'text', text: payUrl },
+            ],
+          }],
+        },
+      }
+    : {
+        messaging_product: 'whatsapp',
+        to,
+        type: 'text',
+        text: { preview_url: true, body },
+      };
+  const res = await fetch(`https://graph.facebook.com/v21.0/${phoneId}/messages`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const message = data?.error?.message || 'WhatsApp send failed';
+    return { ok: false, error: message };
+  }
+  return { ok: true };
+}
+
+/** Email the invoice PDF and send the same message on WhatsApp. */
 export async function dispatchInvoiceToClient(req, invoice) {
   const urls = invoicePublicUrls(req, invoice.share_token);
-  const body = buildInvoiceMessage(invoice, urls);
+  const payLinks = paymentPageLinks(req, invoice.share_token);
+  const body = buildInvoiceMessage(invoice, urls, payLinks);
   const subject = `Invoice ${invoice.invoice_number} — payment due`;
-  const result = { whatsapp: false, email: false, urls, body, subject };
+  const result = {
+    whatsapp: false,
+    email: false,
+    urls,
+    payLinks,
+    body,
+    subject,
+    errors: [],
+  };
 
-  if (invoice.customer_phone) {
-    await query(
-      `INSERT INTO whatsapp_messages (customer_id, template, body, status, created_by)
-       VALUES ($1, 'invoice_payment', $2, 'sent', NULL)`,
-      [invoice.customer_id, body]
-    );
-    await query(
-      `INSERT INTO payment_reminders (invoice_id, stage, channel, created_by)
-       VALUES ($1, 1, 'whatsapp', NULL)`,
-      [invoice.id]
-    );
-    result.whatsapp = true;
+  const { rows: items } = await query(
+    `SELECT description, quantity, unit_price, line_total
+       FROM invoice_items WHERE invoice_id = $1 ORDER BY description`,
+    [invoice.id]
+  );
+  let pdf = null;
+  try {
+    pdf = await buildInvoicePdf({ invoice, items });
+  } catch (err) {
+    console.error('Invoice PDF for email failed:', err);
   }
 
   if (invoice.customer_email) {
-    await query(
-      `INSERT INTO payment_reminders (invoice_id, stage, channel, created_by)
-       VALUES ($1, 1, 'email', NULL)`,
-      [invoice.id]
-    );
-    result.email = true;
-
-    // Optional real SMTP send when configured.
-    if (process.env.SMTP_HOST && process.env.SMTP_FROM) {
-      try {
-        const nodemailer = await import('nodemailer');
-        const transporter = nodemailer.createTransport({
-          host: process.env.SMTP_HOST,
-          port: Number(process.env.SMTP_PORT || 587),
-          secure: process.env.SMTP_SECURE === 'true',
-          auth: process.env.SMTP_USER
-            ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
-            : undefined,
-        });
-        await transporter.sendMail({
-          from: process.env.SMTP_FROM,
-          to: invoice.customer_email,
-          subject,
-          text: body,
-        });
-      } catch (err) {
-        console.error('Invoice email SMTP send failed:', err.message);
+    try {
+      const sent = await sendInvoiceEmail(invoice, subject, body, pdf);
+      result.email = sent.ok;
+      if (!sent.ok) result.errors.push(sent.error);
+      if (sent.ok) {
+        await query(
+          `INSERT INTO payment_reminders (invoice_id, stage, channel, created_by)
+           VALUES ($1, 1, 'email', NULL)`,
+          [invoice.id]
+        );
       }
+    } catch (err) {
+      console.error('Invoice email failed:', err);
+      result.errors.push(err.message || 'Email failed');
     }
   }
 
-  // Deep links (opened after accept so the customer receives the invoice on their device channels).
-  result.email_url = invoice.customer_email
-    ? `mailto:${invoice.customer_email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
-    : null;
-  const digits = String(invoice.customer_phone || '').replace(/\D/g, '');
-  result.whatsapp_url = digits
-    ? `https://wa.me/${digits}?text=${encodeURIComponent(body)}`
-    : null;
+  const to = whatsAppNumber(invoice.customer_phone);
+  if (to) {
+    let status = 'failed';
+    try {
+      const sent = await sendInvoiceWhatsApp(to, body, { ...invoice, view_url: urls.view_url }, payLinks);
+      result.whatsapp = sent.ok;
+      status = sent.ok ? 'sent' : 'failed';
+      if (!sent.ok) result.errors.push(sent.error);
+      if (sent.ok) {
+        await query(
+          `INSERT INTO payment_reminders (invoice_id, stage, channel, created_by)
+           VALUES ($1, 1, 'whatsapp', NULL)`,
+          [invoice.id]
+        );
+      }
+    } catch (err) {
+      console.error('Invoice WhatsApp failed:', err);
+      result.errors.push(err.message || 'WhatsApp failed');
+    }
+    await query(
+      `INSERT INTO whatsapp_messages (customer_id, template, body, status, created_by)
+       VALUES ($1, 'invoice_payment', $2, $3, NULL)`,
+      [invoice.customer_id, body, status]
+    );
+  }
 
   return result;
 }

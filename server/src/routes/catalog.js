@@ -29,6 +29,80 @@ r.get('/stock', async (_req, res) => {
   res.json(rows);
 });
 
+function validateStock(body) {
+  const errors = [];
+  if (!body.name?.trim()) errors.push('Item name is required');
+  if (body.on_hand === undefined || body.on_hand === null || body.on_hand === '' || Number(body.on_hand) < 0)
+    errors.push('On hand must be zero or greater');
+  if (body.reorder_at === undefined || body.reorder_at === null || body.reorder_at === '' || Number(body.reorder_at) < 0)
+    errors.push('Reorder level must be zero or greater');
+  if (body.unit_cost !== undefined && body.unit_cost !== null && body.unit_cost !== '' && Number(body.unit_cost) < 0)
+    errors.push('Unit cost must be zero or greater');
+  return errors;
+}
+
+function stockValues(body) {
+  const sku = body.sku?.trim();
+  return {
+    name: body.name.trim(),
+    sku: sku ? sku.toUpperCase() : null,
+    on_hand: Number(body.on_hand),
+    reorder_at: Math.floor(Number(body.reorder_at)),
+    unit_cost: body.unit_cost === undefined || body.unit_cost === null || body.unit_cost === ''
+      ? 0
+      : Number(body.unit_cost),
+  };
+}
+
+r.post('/stock', requirePermission('stock.manage'), async (req, res) => {
+  const errors = validateStock(req.body);
+  if (errors.length) return res.status(422).json({ errors });
+  const s = stockValues(req.body);
+  try {
+    const { rows } = await query(
+      `INSERT INTO stock_items (name, sku, on_hand, reorder_at, unit_cost)
+       VALUES ($1,$2,$3,$4,$5) RETURNING id`,
+      [s.name, s.sku, s.on_hand, s.reorder_at, s.unit_cost]
+    );
+    res.status(201).json({ id: rows[0].id });
+  } catch (err) {
+    if (err.code === '23505') return res.status(422).json({ errors: ['SKU already exists'] });
+    throw err;
+  }
+});
+
+r.put('/stock/:id', requirePermission('stock.manage'), async (req, res) => {
+  const errors = validateStock(req.body);
+  if (errors.length) return res.status(422).json({ errors });
+  const s = stockValues(req.body);
+  try {
+    const { rowCount } = await query(
+      `UPDATE stock_items
+          SET name=$1, sku=$2, on_hand=$3, reorder_at=$4, unit_cost=$5
+        WHERE id=$6`,
+      [s.name, s.sku, s.on_hand, s.reorder_at, s.unit_cost, req.params.id]
+    );
+    if (!rowCount) return res.status(404).json({ error: 'Not found' });
+    res.json({ ok: true });
+  } catch (err) {
+    if (err.code === '23505') return res.status(422).json({ errors: ['SKU already exists'] });
+    throw err;
+  }
+});
+
+r.delete('/stock/:id', requirePermission('stock.manage'), async (req, res) => {
+  try {
+    const { rowCount } = await query(`DELETE FROM stock_items WHERE id = $1`, [req.params.id]);
+    if (!rowCount) return res.status(404).json({ error: 'Not found' });
+    res.json({ ok: true });
+  } catch (err) {
+    if (err.code === '23503') {
+      return res.status(422).json({ errors: ['This item is used by a product and cannot be deleted'] });
+    }
+    throw err;
+  }
+});
+
 // ---------- PRODUCTS ----------
 function validateProduct(body) {
   const errors = [];
